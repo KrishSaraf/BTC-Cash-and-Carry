@@ -3,10 +3,16 @@ from typing import List, Tuple, Dict, Optional
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
+import os
+from dotenv import load_dotenv
+
 # Import Binance clients
 from binance.spot import Spot
 from binance.cm_futures import CMFutures
 from task1 import SynchronizedCashCarryScanner, BacktestPriceFeed, AdaptiveCashCarryExecutor, ExecParams, BinanceSimulator
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Load inventory produced by backtest_with_rollovers.py ---
 import csv, sys, os
@@ -187,11 +193,13 @@ class OptimizedUnwindExecutor(AdaptiveCashCarryExecutor):
         
         # Init parent executor
         #super is used to call the parent class
+        # Load API credentials from environment if not provided
+        api_key = api_key or os.getenv('BINANCE_API_KEY')
+        secret_key = secret_key or os.getenv('BINANCE_API_SECRET')
+        
         super().__init__(
-            # api_key=api_key,
-            # api_secret=secret_key,
-            api_key="B9qHPC4CkJ8gvQz9q5t7M09YUJ1VDDVNsNOmdb7zFud8dPAFqEF30gvEX6OPTebo",
-            api_secret="LGL1Qo4Gx53HBUYlBy0oEJujH4uUwp2papB4ecxg0OprFrimW8sofmksfrWfmk5U",
+            api_key=api_key,
+            api_secret=secret_key,
             slot_weights=slot_weights,
             simulator=simulator,
             params=params,

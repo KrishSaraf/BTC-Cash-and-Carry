@@ -2,9 +2,14 @@ import time, datetime as dt
 from typing import List, Tuple, Dict, Optional
 import numpy as np
 import pandas as pd
+import os
+from dotenv import load_dotenv
 
 from binance.spot import Spot
 from binance.cm_futures import CMFutures
+
+# Load environment variables from .env file
+load_dotenv()
 
 class SynchronizedCashCarryScanner:
     """
@@ -707,9 +712,13 @@ class BinanceSimulator(object):
     external services.
     """
     def __init__(self,
-                 api_key="B9qHPC4CkJ8gvQz9q5t7M09YUJ1VDDVNsNOmdb7zFud8dPAFqEF30gvEX6OPTebo",
-                 secret_key="LGL1Qo4Gx53HBUYlBy0oEJujH4uUwp2papB4ecxg0OprFrimW8sofmksfrWfmk5U",
+                 api_key=None,
+                 secret_key=None,
                  order_fill_prob: float = 0.9):
+        # Load from environment if not provided
+        api_key = api_key or os.getenv('BINANCE_API_KEY')
+        secret_key = secret_key or os.getenv('BINANCE_API_SECRET')
+        
         self.spot = Spot(api_key=api_key, api_secret=secret_key)
         self.cm_future = CMFutures(key=api_key, secret=secret_key)
         self.order_fill_prob = float(order_fill_prob)
@@ -1220,14 +1229,13 @@ def main():
     today = dt.datetime.now(dt.timezone.utc).date()
     is_live_mode = (target_date_obj == today)
     
-    # api_key="0Lj7lMcerkFtSnCyaIYs6CJmxbqwrdWoPjhJLqBLhyuDkCtvztgxbluNQxOCKn7X"
-    # api_secret="jNd2ld4ONKDmeuse9TPLDBdB8ZCnlUMuMPpKknMMwfxZb8QcmpStkSRLHSvZDCk1"
-
-    # api_key="B9qHPC4CkJ8gvQz9q5t7M09YUJ1VDDVNsNOmdb7zFud8dPAFqEF30gvEX6OPTebo"
-    # api_secret="LGL1Qo4Gx53HBUYlBy0oEJujH4uUwp2papB4ecxg0OprFrimW8sofmksfrWfmk5U"
-
-    api_key="QZHSjbbIWLy9d5aXLj74k7KJRzRB1UxfkGmXFKdpP0vrF6W5v4a7kjjgGLlmB8mi"
-    api_secret="i9PUEqDixS86lIel6731zHMoG0OZwLJzAfWG2iQ301TprNdvXYNvs0AW29Y5Xrzf"
+    # Load API credentials from environment
+    api_key = os.getenv('BINANCE_API_KEY')
+    api_secret = os.getenv('BINANCE_API_SECRET')
+    
+    if not api_key or not api_secret:
+        raise ValueError("BINANCE_API_KEY and BINANCE_API_SECRET must be set in .env file")
+    
     # 3. Run scanner for the plan
     print("\n--- [Step 1] Running Historical Analysis to Build Plan ---")
     scanner = SynchronizedCashCarryScanner(

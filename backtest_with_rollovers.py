@@ -19,6 +19,7 @@ import numpy as np
 import os
 import csv
 from typing import Dict, Tuple, List
+from dotenv import load_dotenv
 
 # Import classes from task1.py (same directory)
 from task1 import (
@@ -30,6 +31,9 @@ from task1 import (
     ExecParams,
 )
 from task1_sell import UnwindParams, OptimizedUnwindExecutor
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --------------------------------------------------------------------------------------
 # RolloverExecutor – smart order routed 24h roll of one futures contract into the next
@@ -475,10 +479,12 @@ class PositionTracker:
 def run_backtest(start_date: dt.date, end_date: dt.date):
     assert start_date <= end_date, "start_date must be <= end_date"
 
-    # api_key = "0Lj7lMcerkFtSnCyaIYs6CJmxbqwrdWoPjhJLqBLhyuDkCtvztgxbluNQxOCKn7X"
-    # api_secret = "jNd2ld4ONKDmeuse9TPLDBdB8ZCnlUMuMPpKknMMwfxZb8QcmpStkSRLHSvZDCk1"
-    api_key = "B9qHPC4CkJ8gvQz9q5t7M09YUJ1VDDVNsNOmdb7zFud8dPAFqEF30gvEX6OPTebo"
-    api_secret = "LGL1Qo4Gx53HBUYlBy0oEJujH4uUwp2papB4ecxg0OprFrimW8sofmksfrWfmk5U"
+    # Load API credentials from environment
+    api_key = os.getenv('BINANCE_API_KEY')
+    api_secret = os.getenv('BINANCE_API_SECRET')
+    
+    if not api_key or not api_secret:
+        raise ValueError("BINANCE_API_KEY and BINANCE_API_SECRET must be set in .env file")
     
     # --- Initialize PnL trackers ---
     initialize_pnl_tracker()

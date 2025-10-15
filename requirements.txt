@@ -4,3 +4,4 @@ binance-connector>=3.0
 binance-futures-connector>=4.0
 python-dateutil>=2.8
 pytz>=2023.3
+python-dotenv>=1.0.0
