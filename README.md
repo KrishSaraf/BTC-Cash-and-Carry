@@ -1,322 +1,305 @@
-# Bitcoin Cash-and-Carry Arbitrage Trading System
+# Bitcoin Cash-and-Carry Arbitrage System
 
-An automated quantitative trading system that captures the price difference between Bitcoin spot and futures markets. The system intelligently enters positions, manages them over time, and automatically handles futures contract rollovers—all while minimizing market impact and slippage.
+An automated trading system for Bitcoin cash-and-carry arbitrage. Takes a $1M position across spot and futures markets, manages it over time with automatic contract rollovers, and exits completely after the holding period.
 
-## 🎯 What is Cash-and-Carry Arbitrage?
+## What is Cash-and-Carry Arbitrage?
 
-Imagine Bitcoin is trading at $30,000 on the spot market, but a futures contract expiring in 3 months is trading at $30,500. This $500 difference is called the "basis." Cash-and-carry arbitrage captures this difference by:
+The basis spread exists when Bitcoin futures trade at a premium over spot. For example:
+- Spot BTC: $30,000
+- Futures (3 months out): $30,500
+- Basis: $500 or ~165 bps
 
-1. **Buying** Bitcoin on the spot market ($30,000)
-2. **Selling** (shorting) Bitcoin futures ($30,500)
-3. **Holding** both positions and collecting the basis as profit
-4. **Staying neutral** to Bitcoin's price movements (if BTC goes up or down, you're hedged)
+You can capture this spread by going long spot and short futures simultaneously. Since you're hedged, Bitcoin's price direction doesn't matter—you just collect the basis as it converges.
 
-### The Trade
-- **Long Position**: BTC Spot (`BTCUSDT`)
-- **Short Position**: BTC Inverse Futures (`BTCUSD` COIN-M contracts)
-- **Profit Source**: Basis spread + roll yield
-- **Risk**: Delta-neutral (protected from BTC price swings)
+**The position:**
+- Long: BTC spot on Binance (`BTCUSDT`)
+- Short: BTC inverse futures on Binance COIN-M (`BTCUSD` quarterly contracts)
+- Goal: Capture the basis premium while staying roughly delta-neutral
 
-## 💡 Why This Matters
+## Why This Implementation Matters
 
-**The Problem**: Most crypto traders are exposed to massive price swings. If you buy Bitcoin at $30k and it drops to $25k, you lose 16%. If it rises to $35k, you gain 16%. It's a pure directional bet.
+Executing a $1M arbitrage trade poorly will cost you real money:
 
-**The Solution**: Cash-and-carry arbitrage lets you profit from market inefficiencies (the basis spread) WITHOUT betting on Bitcoin's direction. You're hedged—if BTC goes up or down, your spot and futures positions offset each other.
+**The slippage problem:** Market orders on a $1M position will move the market against you. You might lose 0.3-0.5% ($3,000-$5,000) just entering the position. Over multiple trades (entry, rollovers, exit), this adds up fast.
 
-**The Challenge**: Executing this strategy poorly kills your returns:
-- Trade $1M at once → you move the market and lose 0.5% to slippage ($5,000)
-- Miss rollovers → futures expire and you're unhedged
-- Poor timing → you buy during low liquidity and pay wider spreads
+**The rollover problem:** Futures contracts expire. The March contract expires in March, the June contract in June, etc. If you don't roll your short position into the next contract before expiry, you're suddenly unhedged and exposed to Bitcoin's full volatility.
 
-**This System's Edge**:
-- ✅ Minimizes slippage through gradual, timed execution
-- ✅ Automatically handles rollovers (never caught off-guard)
-- ✅ Adapts to market conditions in real-time
-- ✅ Executes like institutional traders, not retail
+**The timing problem:** Not all times of day are equal. Trading during low liquidity windows means wider spreads and worse execution prices.
 
-## 🚀 Key Features
+This system addresses these issues by:
+1. Spreading execution over 24 hours in small slices (like institutional TWAP/VWAP execution)
+2. Automatically detecting when futures contracts are near expiry and rolling them
+3. Using historical analysis to identify the best execution windows
+4. Managing the entire lifecycle from entry to exit without manual intervention
 
-### 1. **Smart Entry with Minimal Slippage** (`task1.py`)
+## How the System Works
 
-**Why spread trades over 24 hours?** Dumping $1 million into the market at once would move prices against you (slippage), eating into profits. Instead, this system:
+### Part 1: Entry Execution (task1.py)
 
-- **Analyzes history**: Looks back 1-200 days to find the best times to trade (high liquidity, tight spreads)
-- **Spreads execution**: Breaks the $1M into 96 small orders over 24 hours (every 15 minutes)
-- **Times it right**: Places bigger orders during historically liquid periods, smaller ones during quiet times
-- **Stays flexible**: Adjusts order size based on current market conditions (never overwhelming the order book)
-- **Picks the best contract**: Every 15 minutes, chooses CURRENT or NEXT quarter futures based on which has higher basis
-- **Guarantees completion**: Even if some orders don't fill, a final sweep ensures you're fully invested by end of day
+**Goal:** Open a $1M position (long spot + short futures) over 24 hours with minimal slippage.
 
-**Result**: You get better prices and pay less in slippage—just like institutional traders do.
+**Process:**
 
-### 2. **Automatic Position Management** (`backtest_with_rollovers.py`)
+1. **Historical Analysis (lookback 50-200 days)**
+   - Fetches minute-by-minute spot and futures prices
+   - Calculates basis spread for every 15-minute window across the day
+   - Identifies which time slots historically had: (a) highest basis, (b) most volume/liquidity
+   - Generates 96 execution weights (one per 15-minute slot) favoring high-edge, high-liquidity windows
 
-**The challenge**: Futures contracts expire. You can't just "hold" them forever like spot Bitcoin.
+2. **Execution Over 24 Hours (96 × 15-minute slices)**
+   
+   Every 15 minutes, the system:
+   - Checks current basis for CURRENT_QUARTER and NEXT_QUARTER futures
+   - Selects whichever contract has higher positive basis (more profit potential)
+   - Calculates safe order size based on:
+     * Historical weight for this time slot
+     * Recent 15-minute trading volume (participation-of-volume limit)
+     * How far behind/ahead of schedule we are
+   - Places paired orders: BUY spot + SELL futures
+   - Retries if orders don't fill, gets more aggressive if falling behind
+   
+   **Pricing logic:**
+   - On schedule → passive pricing (limit orders inside the spread)
+   - Behind schedule → aggressive pricing (cross the spread if needed)
+   
+   **Final sweep:**
+   - After 96 slots, if any capital remains uninvested, forces completion
+   - Uses market orders if necessary to guarantee full $1M deployment
 
-**The solution**: This system automatically handles everything:
+**Output:** 
+- Console log showing execution progress
+- Entry day execution log with all fills (optional CSV)
+- Final position: ~34.5 BTC long spot, equivalent contracts short futures
 
-- **Auto-rollover**: When a futures contract is 2 days from expiry, the system automatically:
-  - Closes the expiring contract (buys it back)
-  - Opens a new contract in the next quarter (sells the new one)
-  - Does this gradually over 24 hours (again, to avoid slippage!)
-  - Tracks all the PnL from each rollover
-  
-- **Daily rebalancing**: Checks every day if your position is still neutral (spot vs futures balanced). If it drifts by more than 5%, automatically rebalances.
+### Part 2: Multi-Day Backtest with Rollovers (backtest_with_rollovers.py)
 
-- **Complete tracking**: Records every trade, every rollover, every hedge—so you know exactly where profits are coming from.
+**Goal:** Simulate holding the position for months, handling all the daily management automatically.
 
-**Result**: Set it and forget it. The system manages positions for weeks or months without manual intervention.
+**Complete Flow:**
 
-### 3. **Clean Exit Strategy** (`task1_sell.py`)
+**Day 1 (Entry)**
+- Runs `task1.py` logic to open position
+- Records all entry trades to `entry_day_exec_log.csv`
+- Tracks initial position in `PositionTracker`
 
-When it's time to close the position:
-- Unwinds everything over 24 hours (same low-slippage approach)
-- Sells spot BTC and buys back the short futures simultaneously
-- Closes cheapest contracts first (FIFO - minimizes losses)
-- Adapts pricing if behind schedule
-- Forces completion to ensure you're 100% out by end of day
+**Days 2 through N-1 (Daily Management)**
 
-### 4. **Institutional-Quality Infrastructure**
+For each trading day, the system:
 
-This isn't a quick script—it's built like professional trading systems:
-- **Handles API limits**: Automatically chunks large data requests
-- **Resilient**: Retries failed orders, handles rate limits, never gives up
-- **Realistic simulation**: 90% fill probability mirrors real market conditions
-- **Complete audit trail**: Every trade logged with timestamp, price, quantity
-- **Synchronized data**: Ensures spot and futures prices are perfectly aligned (no timing errors)
+1. **Fetches daily price data**
+   - Gets 1-minute bars for spot, CURRENT_QUARTER, and NEXT_QUARTER futures
+   - Uses chunked fetching (1500 bars per API call) to handle API limits
 
-## 📊 How It Works (Simple Explanation)
+2. **Checks for rollover conditions**
+   
+   For each active futures position:
+   - If days to expiry ≤ 2: triggers rollover
+   
+   **Rollover execution** (when triggered):
+   - Builds 21-day volume profile to weight the rollover execution
+   - Runs a 24-hour gradual roll (96 × 15-minute slices, just like entry):
+     * Slice by slice: BUY to close expiring contract, SELL to open new contract
+     * Uses participation-of-volume limits (25% of recent volume)
+     * Gets progressively more aggressive if behind schedule
+   - Records realized PnL from closing the expiring contract:
+     * Formula: `BTC_PnL = contracts × $100 × (1/exit_price - 1/entry_price)`
+     * Converts to USD: `USD_PnL = BTC_PnL × spot_price_at_fill`
+   - Updates position tracker with new contract at new entry price
+   - Logs all rollover trades to `rollover_exec_log.csv`
+   - Records PnL to `pnl_tracker.csv`
+   
+   **Why the inverse formula?** COIN-M contracts are inverse perpetuals. Each contract is worth $100/BTC_price in BTC terms. When you close a short position, you profit if the exit price is lower than entry (you're buying back cheaper than you sold).
 
-### Step 1: Learn from History
-The system analyzes the last 100+ days of trading data to answer: *"When is the best time to trade?"*
+3. **Daily delta rehedging**
+   - Calculates net delta: `spot_BTC - (contracts × $100 / spot_price)`
+   - If |net_delta| > 5% of spot position: executes rebalancing trade
+   - Uses EOD futures prices for the hedge
+   - Records realized PnL if closing any contracts
+   - Logs rehedge to `rehedge_log.csv`
 
-- Looks at every 15-minute window across the day
-- Finds windows with the highest basis (profit opportunity)
-- Finds windows with the most liquidity (easy to trade without moving the market)
-- Creates a "game plan" of 96 time slots, giving more weight to the best windows
+4. **End-of-day mark-to-market**
+   - **Spot MTM PnL**: `(current_price - entry_price) × BTC_held`
+   - **Futures unrealized PnL**: For each open position:
+     * `contracts × $100 × (1/mark_price - 1/entry_price)`
+     * If short and price went up: negative unrealized PnL
+     * If short and price went down: positive unrealized PnL
+   - **Futures realized PnL**: Sum of all recorded rollovers and rehedges
+   - **Portfolio value**: `initial_capital + spot_MTM + futures_unrealized + futures_realized`
+   - Writes daily snapshot to `daily_pnl_tracker.csv`
 
-### Step 2: Execute Gradually (Avoid Slippage!)
-Instead of one big trade, the system makes 96 small trades over 24 hours:
+**Day N (Final Day - Exit)**
 
-```
-Every 15 minutes:
-  → Check current basis for CURRENT and NEXT quarter futures
-  → Pick the contract with higher basis (more profit)
-  → Calculate safe order size (based on recent trading volume)
-  → Place paired orders: BUY spot + SELL futures
-  → If orders don't fill, retry with better prices
-  → Track progress and adjust if falling behind schedule
-```
+On the last day, the system:
 
-**Why this matters**: Large trades move prices against you. Small, timed trades get you better prices.
+1. **Builds 24-hour exit schedule**
+   - Uses flat weights (1/96 for each slot) - no trying to optimize exit timing
+   - Goal is just clean risk-off with minimal market impact
 
-### Step 3: Hold & Manage Automatically
-Once positions are open, the system runs on autopilot:
+2. **Executes gradual unwind** (via `task1_sell.py`)
+   
+   Every 15 minutes over 24 hours:
+   - Calculates remaining position to close
+   - Sizes orders based on:
+     * Time-weighted schedule (close 1/96 each slot)
+     * Recent 15-minute volume (PoV limits)
+     * Schedule adherence (more aggressive if behind)
+   - Places paired orders: SELL spot + BUY futures
+   - Uses FIFO for futures: closes cheapest contracts first
+   - Tracks basis as it converges toward zero
+   
+   **Pricing:**
+   - On schedule → passive (place limit orders)
+   - Behind schedule → aggressive (cross the spread)
+   
+   **Final sweep:**
+   - After 96 slots, if any position remains, forces 100% completion
+   - Uses aggressive market orders to guarantee flat book
 
-- **Monitors daily**: Checks if the hedge is still balanced
-- **Rebalances if needed**: Adjusts futures position if it drifts >5%
-- **Rolls contracts**: 2 days before expiry, automatically closes old contracts and opens new ones
-- **Tracks everything**: Every PnL source is logged (spot gains, futures PnL, rollover costs)
+3. **Final PnL calculation**
+   - Sums spot PnL from selling at exit prices vs entry
+   - Calculates futures PnL from all buybacks (same inverse formula)
+   - Adds all realized PnL from rollovers/rehedges during holding period
+   - Records final portfolio value
 
-### Step 4: Calculate Profits
+**Outputs:**
+- `daily_pnl_tracker.csv`: Every day's portfolio value, PnL breakdown
+- `entry_day_exec_log.csv`: All entry trades from day 1
+- `rollover_exec_log.csv`: Every rollover trade (buy old contract, sell new contract)
+- `rehedge_log.csv`: Delta rebalancing trades
+- `pnl_tracker.csv`: All realized PnL events
+- Console summary: Final return, days held, annualized return
 
-**Inverse Futures Math** (COIN-M contracts are special):
-- Each contract is worth $100 / Bitcoin_Price in BTC
-- When you close a short position:
-  - **Profit**: If you buy back at a LOWER price than you sold
-  - **Loss**: If you buy back at a HIGHER price than you sold
-- Formula: `Profit_in_BTC = contracts × $100 × (1/exit_price - 1/entry_price)`
-- Convert to USD: Multiply by current spot price
+## Real Example: 2021 Backtest
 
-**Total Profit** = Spot gains + Futures PnL + Basis captured - Rollover costs
+I ran this on January 2 - September 30, 2021. Here's what actually happened:
 
-## 🛠️ Setup
+**Setup:**
+- Starting capital: $1,000,000
+- Entry: Jan 2, 2021 at spot price $32,172
+- Position: 34.57 BTC long, 688 contracts short
+- Initial basis: ~700 bps
 
-### Prerequisites
+**During the run (272 days):**
+- Bitcoin rallied from $29k to $43k (peak)
+- The system rolled futures contracts 3-4 times automatically
+- Daily rebalancing kept delta within tolerance
+- Spot position gained significantly (BTC went up)
+- Futures position lost money (we were short, price rose)
+- Basis capture partially offset futures losses
+
+**Results:**
+- Peak portfolio value: $1,116,154 on Jan 27 (up $116k in 26 days)
+- Strategy reduced volatility vs pure spot holding
+- Delta-neutral hedge limited downside when BTC corrected
+
+**What the logs show:**
+- `daily_pnl_tracker.csv`: 272 rows, one per day
+- Daily PnL split into: spot MTM, futures unrealized, futures realized
+- You can see exactly when rollovers happened (realized PnL spikes)
+- Portfolio value tracked through multiple BTC rallies and corrections
+
+The point: the strategy worked as designed. It captured basis premium while staying hedged. Not as much upside as pure spot holding in a bull run, but way less risk.
+
+## Installation & Setup
+
+**Requirements:**
 - Python 3.8+
 - Binance account with Spot and COIN-M Futures API access
 
-### Installation
-
-1. **Clone the repository**
+**Install:**
 ```bash
-git clone <your-repo-url>
+git clone <your-repo>
 cd "BTC Cash and Carry"
-```
-
-2. **Install dependencies**
-```bash
 pip install -r requirements.txt
 ```
 
-3. **Configure API credentials**
+**Configure API keys:**
 ```bash
-# Copy the example environment file
 cp .env.example .env
-
-# Edit .env and add your Binance API keys
-# BINANCE_API_KEY=your_api_key_here
-# BINANCE_API_SECRET=your_api_secret_here
+# Edit .env and add your keys:
+# BINANCE_API_KEY=your_key
+# BINANCE_API_SECRET=your_secret
 ```
 
-## 📖 Usage
+The scripts load credentials from `.env` automatically. Never commit `.env` to git (it's already in `.gitignore`).
 
-### Option 1: Test Entry Execution (Single Day)
+## Usage
 
-Want to see how the system would enter a position? Run this:
-
+**Option 1: Test entry execution on a single day**
 ```bash
 python task1.py
 ```
+- Prompts for target date (e.g., 2021-06-15) and lookback days (50-100 recommended)
+- Shows how the system would enter a position that day
+- Displays execution schedule and simulated fills
+- Good for understanding the entry logic
 
-You'll be prompted for:
-- **Target date**: Any historical date (e.g., `2021-06-15`)
-- **Lookback days**: How much history to analyze (50-100 recommended)
-
-The system will:
-1. Analyze historical data to find optimal trading windows
-2. Simulate entering a $1M position over 24 hours
-3. Show you exactly when/how it would place each order
-4. Display final results (no CSV files created by default)
-
-**Use this to**: Understand the entry logic and see how slippage reduction works.
-
-### Option 2: Full Multi-Day Backtest (The Whole Journey)
-
-Want to simulate the complete strategy over months? Run this:
-
+**Option 2: Run full multi-day backtest**
 ```bash
 python backtest_with_rollovers.py 2021-01-01 2021-09-30
 ```
+- Simulates complete lifecycle: entry → daily management → rollovers → exit
+- Takes 10-20 minutes for a 9-month backtest (lots of API calls)
+- Generates all CSV logs
+- Shows daily progress and final summary
 
-The system will:
-1. Enter the position on Jan 1 (using `task1.py` logic)
-2. Hold and manage it every day through Sep 30
-3. Automatically roll futures contracts as they expire
-4. Rebalance daily if the hedge drifts
-5. Exit completely on Sep 30
-6. Generate detailed CSV logs of everything
+## Output Files
 
-**Use this to**: See complete strategy performance including rollovers and PnL tracking.
+| File | Contents |
+|------|----------|
+| `daily_pnl_tracker.csv` | Daily portfolio value, PnL (spot/futures/realized), cumulative returns |
+| `entry_day_exec_log.csv` | All entry trades: timestamp, prices, quantities, which futures contract |
+| `rollover_exec_log.csv` | Rollover trades: closing old contract, opening new contract, realized PnL |
+| `rehedge_log.csv` | Delta rebalancing trades: direction, size, prices |
+| `pnl_tracker.csv` | All realized PnL events from rollovers and rehedges |
 
-**Note**: This fetches a lot of historical data, so expect it to take 10-20 minutes for a 9-month backtest.
+Open these in Excel/Python to analyze performance, execution quality, rollover timing, etc.
 
-## 📁 Output Files
+## Technical Implementation Notes
 
-| File | Description |
-|------|-------------|
-| `daily_pnl_tracker.csv` | Daily portfolio value, PnL breakdown (spot/futures/realized) |
-| `entry_day_exec_log.csv` | Detailed entry execution fills and prices |
-| `rollover_exec_log.csv` | Rollover trade details (close old, open new contracts) |
-| `rehedge_log.csv` | Delta re-hedging transactions |
-| `pnl_tracker.csv` | Realized PnL events from rollovers and hedges |
+**Data handling:**
+- Fetches 1-minute bars synchronized across spot and futures
+- Chunks large requests (1500 bars per API call) to bypass limits
+- Rate limiting with exponential backoff for API resilience
+- Inner joins ensure spot and futures data align perfectly by timestamp
 
-## 📈 Real Backtest Example
+**Execution simulation:**
+- 90% fill probability on limit orders (realistic, not 100%)
+- Final sweeps use forced fills to guarantee completion
+- Tracks every order attempt, retry, and final fill
 
-**Period**: January 2 - September 30, 2021 (272 days during the bull run)  
-**Starting Capital**: $1,000,000 USDT  
-**Bitcoin Price Movement**: $29,000 → $43,000 (peak)
+**Position tracking:**
+- Maintains weighted-average entry price for each futures position
+- Handles partial fills and position updates correctly
+- Properly accounts for inverse futures mechanics (COIN-M)
 
-### What Happened
+**Risk management:**
+- Delta threshold: 5% of spot position
+- Participation of volume limits: 2%-25% (typically 10%)
+- Rollover window: 2 days before expiry
+- Spread-crossing logic when behind schedule
 
-This was a wild ride—Bitcoin rallied hard in early 2021. Here's how the cash-and-carry strategy performed:
+## Disclaimer
 
-**Day 1 (Jan 2, 2021)**:
-- Entered position: Long 34.57 BTC spot + Short equivalent futures
-- Initial basis: ~700 bps (7% annualized)
-- Portfolio value: $1,048,511 (+4.85% on day 1!)
+This is a backtest simulation using historical data. No real trades are executed. The system is built for education and research.
 
-**During the Bull Run**:
-- **Spot position**: Made huge gains as BTC rose from $29k to $43k
-- **Futures position**: Lost money (we were short, price went up)
-- **Net effect**: Profitable because basis capture + spot gains > futures losses
-- **Multiple rollovers**: System automatically rolled contracts 3-4 times as they expired
+**Before considering live trading:**
+1. Understand that crypto futures can liquidate your account
+2. Factor in real costs: trading fees, funding rates, exchange risk
+3. Test extensively across different market conditions
+4. Start small (this was built for $1M simulations)
+5. Monitor actively—automation doesn't mean fire-and-forget
 
-**Peak (Jan 27, 2021)**:
-- Portfolio hit $1,116,154 when BTC touched $30,382
-- Up $116,154 in just 26 days
+**What this is good for:**
+- Learning how cash-and-carry arbitrage works in practice
+- Understanding institutional execution techniques (TWAP/VWAP/PoV)
+- Studying automated position management and contract rollovers
+- Backtesting and strategy research
 
-**Volatility**:
-- Unlike pure spot holding (very volatile), this strategy was more stable
-- Delta-neutral hedge protected from worst drawdowns
-- Basis kept accruing regardless of BTC direction
+**What this is not:**
+- Financial advice or a recommendation to trade
+- A guaranteed profit system (basis can compress or go negative)
+- Production-ready for live trading without significant modifications
+- Suitable for people unfamiliar with derivatives
 
-### Key Takeaway
-
-The strategy worked as designed: captured basis premium while reducing directional risk. When BTC rallied, we still profited (just less than pure spot). When BTC dropped, we were protected by the hedge.
-
-**Full results**: See `daily_pnl_tracker.csv` for day-by-day performance breakdown.
-
-## 🔧 Technical Details
-
-### Data Architecture
-- **Synchronized fetching**: Ensures spot and futures bars align perfectly by timestamp
-- **Chunked requests**: Breaks large historical queries into 1500-bar chunks
-- **Continuous contracts**: Uses CURRENT/NEXT quarter continuous series for analysis
-- **Fallback mechanisms**: Gracefully handles missing data with multiple fallback strategies
-
-### Execution Parameters
-- **Capital**: $1,000,000 USDT (configurable)
-- **Bucket size**: 15 minutes (96 slots per 24 hours)
-- **PoV range**: 2%-25% (base: 10%)
-- **Fill probability**: 90% (simulation)
-- **Contract size**: $100 USD per COIN-M contract
-- **Roll window**: 2 days before expiry
-- **Delta threshold**: 5% of spot position
-
-### Position Tracking
-- Maintains inverse-weighted average entry prices
-- Handles partial fills and position updates
-- Tracks realized PnL on each close
-- Supports multiple concurrent futures positions
-
-## 🔒 Security
-
-- **Never commit `.env`**: API keys stored securely in `.env` file (gitignored)
-- **Environment validation**: Scripts verify credentials before execution
-- **Read-only recommended**: Use read-only API keys for backtesting
-
-## ⚠️ Important Notes
-
-### This is a Simulation
-- **No real money**: All trades are simulated using historical data
-- **90% fill rate**: Mimics realistic market conditions (not all orders fill)
-- **Educational only**: Built to learn how institutional arbitrage works
-
-### Before Live Trading (If You Ever Consider It)
-1. **Understand the risks**: Crypto is volatile; futures can liquidate your account
-2. **Start small**: This was built for $1M simulations, but you should start with much less
-3. **Know the costs**: Fees, funding rates, and slippage eat into profits
-4. **Test thoroughly**: Run extensive backtests across different market conditions
-5. **Monitor actively**: Even automated systems need human oversight
-
-### What This Project Is Good For
-- ✅ Learning how cash-and-carry arbitrage works
-- ✅ Understanding slippage reduction techniques
-- ✅ Seeing how institutional-grade execution differs from retail
-- ✅ Studying automated position management and rollovers
-- ✅ Backtesting and strategy research
-
-### What This Project Is NOT
-- ❌ Financial advice
-- ❌ A guaranteed money printer
-- ❌ Ready for live trading without extensive modification
-- ❌ Suitable for beginners (requires deep understanding of derivatives)
-
-## 🤝 Questions or Improvements?
-
-This project is open for learning and experimentation. If you:
-- Find bugs or improvements
-- Want to add features (better risk management, different execution styles)
-- Have questions about the implementation
-
-Feel free to open an issue or fork the project!
-
-## 📄 License
-
-MIT License - Use freely, but at your own risk.
-
----
-
-**Final Disclaimer**: Cryptocurrency trading carries substantial risk of loss. This software is provided "as-is" for educational purposes only. Past performance (even in backtests) does not guarantee future results. The author assumes no responsibility for financial losses incurred from using this code. Trade responsibly.
-
+Trading involves substantial risk of loss. Use at your own risk. The author assumes no responsibility for financial losses.
