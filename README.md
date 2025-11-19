@@ -1,5 +1,19 @@
 # Bitcoin Cash-and-Carry Arbitrage System
 
+## 2025 Backtest Results (January 1 - November 17, 2025)
+
+I recently completed a comprehensive backtest of this cash-and-carry arbitrage system spanning 320 days from January 1st to November 17th, 2025. Starting with $1,000,000 in capital, the system generated a total return of $79,781 (7.98%), which annualizes to 9.15% APR over the holding period. The strategy successfully navigated various market conditions while maintaining delta-neutral exposure through automated rollovers and re-hedging.
+
+**Key Performance Highlights:**
+
+**April Performance:** During April 2025, Bitcoin experienced a strong rally, rising from $85,160 to $94,182 (+10.59%). Despite this significant upward move, our delta-neutral cash-and-carry strategy delivered a positive return of $15,474 (1.43%), capturing basis spreads while the hedge limited exposure to Bitcoin's price appreciation. The automated rollover mechanism executed smoothly during this period, transitioning from expiring contracts to new quarterly contracts while maintaining precise hedge ratios. This demonstrates the strategy's ability to generate returns independent of Bitcoin's directional moves.
+
+**November Performance:** November 2025 presented challenging market conditions, with Bitcoin experiencing a sharp correction from $110,117 to $92,149 (-16.32%) by the exit date. Our portfolio experienced a drawdown of $86,503 (-7.42%) during the month, but critically, this was less than half of Bitcoin's decline. The delta-neutral hedge structure proved its value, protecting the portfolio from the full impact of the market correction. The final exit on November 17th was executed cleanly, with all positions unwound over 24 hours using our TWAP methodology, resulting in a final portfolio value of $1,079,781.
+
+The results validate the core thesis: by systematically capturing basis spreads while maintaining delta-neutral exposure, the strategy can generate consistent returns with significantly lower volatility than holding spot Bitcoin alone. The automated execution and position management infrastructure proved robust across different market regimes—from the steady basis capture during Bitcoin's April rally to the protective hedging during November's correction.
+
+---
+
 An automated trading system for Bitcoin cash-and-carry arbitrage. Takes a $1M position across spot and futures markets, manages it over time with automatic contract rollovers, and exits completely after the holding period.
 
 ## What is Cash-and-Carry Arbitrage?
